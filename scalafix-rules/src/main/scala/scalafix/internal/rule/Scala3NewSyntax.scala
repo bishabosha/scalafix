@@ -47,6 +47,26 @@ final class Scala3NewSyntax(config: Scala3NewSyntaxConfig)
           ) =>
         val underscore = t.tokens.find(_.is[Token.Underscore]).get
         Patch.replaceToken(underscore, "?")
+      case t @ Pkg.Object(mods, name, template @ Template(early, inits, self, stats)) =>
+        if (inits.nonEmpty) {
+          Patch.lint(
+            Diagnostic(
+              "PackageObjectInitialisation",
+              "Package object with parents can not be replaced by top level definitions.",
+              inits.head.pos
+            )
+          )
+        }
+        else {
+          val objectKw = t.tokens.find(_.is[Token.KwObject]).get
+          val removeObjectKw = Patch.removeToken(objectKw)
+          val changeStats = stats.flatMap {
+            case t: Term =>
+              Some(Patch.addLeft(t, "val _ = "))
+            case _ => None
+          }
+          removeObjectKw + changeStats.asPatch
+        }
     }.asPatch
 
     val lintPatch = doc.tokens.collect { case t @ Token.KwImplicit() =>
@@ -60,14 +80,6 @@ final class Scala3NewSyntax(config: Scala3NewSyntaxConfig)
     }.asPatch
 
     rewritePatch + lintPatch
-  }
-  def sanitizeTemplate(s: Template): String = {
-    val lines = s.toString().linesIterator.toList
-    val firstline = lines.head.replaceAll("[:{]", "")
-    val lastLine = lines.last.replaceAll("[}]", "")
-    (firstline +:
-      lines.drop(1).dropRight(1).map(_.replaceAll("^  ", "")) :+
-      lastLine).mkString("\n")
   }
 
 }
